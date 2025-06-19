@@ -2,6 +2,31 @@ import math
 from typing import Optional, Union, Any
 import numpy as np
 
+ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
+
+
+ACTIONS_BY_TYPE = {
+        "shear": ["Fy", "Fz"], # action: [possible direction(s)]
+        "moment": ["Mz", "My"],
+        "axial": ["axial"], # There are no axial directions; axial is axial!
+        "torque": ["torque"], # ...same with torque
+        "deflection": ['dx', 'dy', 'dz']
+}
+
+ACTION_METHODS = {
+    "Fy": "shear",
+    "Fz": "shear",
+    "My": "moment",
+    "Mz": "moment",
+    "axial": "axial",
+    "torque": "torque",
+    "dy": "deflection",
+    "dz": "deflection",
+    "dx": "deflection",
+}
+
+REACTIONS = ['RxnFX', 'RxnFY', 'RxnFZ', 'RxnMX', 'RxnMY', 'RxnMZ']
+
 def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
     # if load_combinations is None:
     #     load_combinations = extract_load_combinations(model)
@@ -139,8 +164,10 @@ def extract_member_forces_minmax(
 
 def extract_member_forces_at_locations(
     model: "Pynite.FEModel3D", 
-    force_extraction_locations: dict[str, list[float]],
+    force_extraction_locations: Optional[dict[str, list[float]]] = None,
+    force_extraction_ratios: Optional[dict[str, list[float]]] = None,
     load_combinations: Optional[list[str]] = None,
+    by_span: bool = False
 ) -> dict[str, dict]:
     """
     Extracts forces at selected members at the locations specified.
@@ -151,54 +178,84 @@ def extract_member_forces_at_locations(
         - "member01" is a member name
         - The values are a list of locations on the member from which to
             extract results from.
-
     """
     force_locations = {}
-
-    actions = {
-        "shear": ["Fy", "Fz"], # action: [possible direction(s)]
-        "moment": ["Mz", "My"],
-        "axial": ["axial"], # There are no axial directions; axial is axial!
-        "torque": ["torque"], # ...same with torque
-    }
-
-    # There many things we need to specify in order to get a number:
-    # member_name -> 'forces' -> 'moment'/'shear'/'axial'/'torque' -> Optional[direction] -> load_combo -> 'max'/'min'
-    # Which is why there is a loop *four* layers deep
-    #
-    # This is also complicated by the fact that Pynite subcategorizes forces into
-    # "shear", "moment", "axial", and "torque". "shear" and "moment" require an additional
-    # direction specification to retrieve the value whereas "axial" and "torque" do not.
-
-    # For each member...
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
     force_locations = {}
+    if force_extraction_locations is None:
+        force_extraction_locations = {}
+    if force_extraction_ratios is None:
+        force_extraction_ratios = {}
     for member_name, member in model.members.items():
-        if member_name not in force_extraction_locations:
+        if member_name not in (
+            list(force_extraction_locations.keys()) 
+            + list(force_extraction_ratios.keys())
+        ):
             continue
-        force_locations[member_name] = {}
-        for loc in force_extraction_locations[member_name]:
-            force_locations[member_name][loc] = {}
-            accumulator = force_locations[member_name][loc]
-            for load_combo_name in load_combinations:
-                # load_combo_name = load_combo['name']
-                accumulator[load_combo_name] = {}
-                for action_name, directions in actions.items():
-                    # ...and for each direction...
-                    for direction in directions:
-                        force_method = getattr(member, action_name)
-                        if action_name == direction:
-                            force_name = action_name
-                        else:
-                            force_name = f"{direction}"
-                        if direction not in ("axial", "torque"):
-                            force_value = float(force_method(direction, loc, load_combo_name))
-                        else:
-                            force_value = float(force_method(loc, load_combo_name))
-        
-                        accumulator[load_combo_name].update({force_name: round_to_close_integer(force_value)})
+        if by_span:
+            force_locations.setdefault(member_name, [])
+            for sub_member in member.sub_members.values():
+                force_locations[member_name].append(
+                    collect_forces_at_location(
+                        sub_member,
+                        member_name,
+                        force_extraction_locations, 
+                        force_extraction_ratios, 
+                        load_combinations
+                    )
+                )
+        else:
+            force_locations[member_name] = collect_forces_at_location(
+                member,
+                member_name,
+                force_extraction_locations,
+                force_extraction_ratios,
+                load_combinations
+            )
+
+                
     return force_locations
+
+
+def collect_forces_at_location(
+    submember: "Pynite.Member3D",
+    member_name: str,
+    force_extraction_locations: dict, 
+    force_extraction_ratios: dict,
+    load_combinations: list[str]
+) -> dict:
+    acc = {}
+    for loc in force_extraction_locations.get(member_name,{}):
+        acc.update({loc: extract_forces_at_location(submember, loc, load_combinations)})
+
+    for ratio in force_extraction_ratios.get(member_name, {}):
+        length = submember.L()
+        loc = length * ratio
+        acc.update({loc: extract_forces_at_location(submember, loc, load_combinations)})
+    return acc
+
+
+def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_combinations: list[str]):
+    loc = location
+    acc = {}
+    for load_combo_name in load_combinations:
+        # load_combo_name = load_combo['name']
+        acc[load_combo_name] = {}
+        for action_name, directions in ACTIONS_BY_TYPE.items():
+            # ...and for each direction...
+            for direction in directions:
+                force_method = getattr(member, action_name)
+                if action_name == direction:
+                    force_name = action_name
+                else:
+                    force_name = f"{direction}"
+                if direction not in ("axial", "torque"):
+                    force_value = round_to_close_integer(force_method(direction, loc, load_combo_name))
+                else:
+                    force_value = round_to_close_integer(force_method(loc, load_combo_name))
+                acc[load_combo_name].update({force_name: force_value})
+    return acc
 
 
 def extract_span_max_mins(
@@ -277,7 +334,7 @@ def extract_span_max_mins(
                         x_val_global = x_val_local + length_counter
                         x_length = result_arrays[0][-1]
                         length_counter += x_length
-                        is_cantilevered = member_is_cantilever(sub_member, model)
+                        is_cantilevered = member_is_cantilevered(sub_member)
                         span_envelope = {
                             "value": round_to_close_integer(envelope_val),
                             "loc_rel": x_val_local,
@@ -288,11 +345,6 @@ def extract_span_max_mins(
                         }
                         span_envelopes[member_name][lc][action][envelope_key].append(span_envelope)
     return span_envelopes
-
-
-        
-
-
 
 
 def extract_spans(model: "Pynite.FEModel3D") -> dict[str, list["Pynite.Member3D"]]:
@@ -314,16 +366,43 @@ def extract_load_combinations(model: "Pynite.FEModel3D") -> list[str]:
     return list(model.load_combos.keys())
 
 
-def member_is_cantilever(member: "Pynite.Member3D", model: "Pynite.FEModel3D") -> bool:
+def member_is_cantilevered(member: "Pynite.Member3D") -> bool:
     """
-    Returns True if 'member' is a cantilever member.
-    False if it has two supports.
+    Returns True if a member is cantilevered. False otherwise.
     """
-    return not all([
-        node_has_supports(model.nodes[member.i_node.name]),
-        node_has_supports(model.nodes[member.j_node.name]),
+    has_two_supports = member_has_two_supports(member)
+    if has_two_supports:
+        return False
+    return member_has_reactions_each_end(member)
+
+
+def member_has_two_supports(member: "Pynite.Member3D") -> bool:
+    """
+    Returns True if 'member' two supports.
+    False if it has less than two supports.
+    """
+    return all([
+        node_has_supports(member.i_node),
+        node_has_supports(member.j_node),
     ])
 
+
+def member_has_reactions_each_end(member: "Pynite.Member3D") -> bool:
+    """
+    Returns True if the 'member' has at least one reaction one both
+    ends.
+    False, otherwise.
+    """
+    reactions_i_tally = []
+    reactions_j_tally = []
+    for reaction_type in REACTIONS:
+        i_node = member.i_node
+        j_node = member.j_node
+        reactions_i = getattr(i_node, reaction_type)
+        reactions_j = getattr(j_node, reaction_type)
+        reactions_i_tally.append(any([round_to_close_integer(reaction) for reaction in reactions_i.values()]))
+        reactions_j_tally.append(any([round_to_close_integer(reaction) for reaction in reactions_j.values()]))
+    return any([reactions_i_tally]) and any([reactions_j_tally])
 
 def node_has_supports(node: "Pynite.Node") -> bool:
     """
@@ -344,8 +423,9 @@ def round_to_close_integer(x: float, eps = 1e-8) -> float | int:
     """
     Rounds to the nearest int if it is REALLY close
     """
-    # print(f"{abs((abs(round(x)) - abs(x))=} | {eps=} | {((abs(round(x)) - abs(x)) < eps)=}")
     if abs(abs(round(x)) - abs(x)) < eps:
         return round(x)
     else:
         return x
+    
+
