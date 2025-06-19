@@ -80,7 +80,76 @@ def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optio
 
     return node_deflections
 
+def extract_member_force_arrays(
+        model: "Pynite.FEModel3D", 
+        load_combinations: Optional[list[str]] = None,
+        n_points: int = 1000
+    ) -> dict[str, dict]:
+    # There many things we need to specify in order to get a number:
+    # member_name -> 'forces' -> 'moment'/'shear'/'axial'/'torque' -> Optional[direction] -> load_combo -> 'max'/'min'
+    # Which is why there is a loop *four* layers deep
+    #
+    # This is also complicated by the fact that Pynite subcategorizes forces into
+    # "shear", "moment", "axial", and "torque". "shear" and "moment" require an additional
+    # direction specification to retrieve the value whereas "axial" and "torque" do not.
 
+    # For each member...
+    if load_combinations is None:
+        load_combinations = extract_load_combinations(model)
+    forces = {}
+    for member_name, member in model.members.items():
+        # For each action...
+        forces[member_name] = {}
+        for action_name, directions in ACTIONS_BY_TYPE.items():
+            forces[member_name][action_name] = {}
+            # ...and for each direction...
+            for direction in directions:
+                array_method = getattr(member, f"{action_name}_array")
+                if action_name == direction:
+                    forces[member_name][action_name] = {}
+                    accumulator = forces[member_name][action_name]
+
+                    # The 'parent_accumulator' and 'path' allow me to update the action
+                    # with None if there are no results
+                    parent_accumulator = forces[member_name]
+                    path = action_name
+                else:
+                    forces[member_name][action_name][direction] = {}
+                    accumulator = forces[member_name][action_name][direction]
+
+                    # The 'parent_accumulator' and 'path' allow me to update the action
+                    # with None if there are no results
+                    parent_accumulator = forces[member_name][action_name]
+                    path = direction
+        
+                # ...and for each load combo...
+                for load_combo_name in load_combinations:
+                    accumulator[load_combo_name] = {}
+                    
+                    # Get the max and min value from the model
+                    pop_next = False
+                    try:
+                        if direction not in ("axial", "torque"):
+                            result_arrays = array_method(direction, combo_name=load_combo_name, n_points=n_points)
+                        else:
+                            result_arrays = array_method(combo_name=load_combo_name, n_points=n_points)
+                    except TypeError: # AxialDeflection method is receiving None for a .P1, I think
+                        parent_accumulator[path] = None
+                        continue
+                    if (
+                        (result_arrays.dtype == "object")
+                        or
+                        np.allclose(result_arrays[1], np.zeros(len(result_arrays[1])), atol=1e-8)
+                    ):
+                        accumulator.pop(load_combo_name)
+                        pass
+                    else:
+                        accumulator[load_combo_name] = result_arrays
+                    if pop_next:
+                        parent_accumulator.pop(path)
+                if not parent_accumulator[path]:
+                    parent_accumulator.pop(path)
+    return forces
 
 
 def extract_member_forces_minmax(
@@ -109,7 +178,7 @@ def extract_member_forces_minmax(
     for member_name, member in model.members.items():
         # For each action...
         forces[member_name] = {}
-        for action_name, directions in actions.items():
+        for action_name, directions in ACTIONS_BY_TYPE.items():
             forces[member_name][action_name] = {}
             # ...and for each direction...
             for direction in directions:
