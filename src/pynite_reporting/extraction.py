@@ -27,6 +27,7 @@ ACTION_METHODS = {
 
 REACTIONS = ['RxnFX', 'RxnFY', 'RxnFZ', 'RxnMX', 'RxnMY', 'RxnMZ']
 
+
 def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
     # if load_combinations is None:
     #     load_combinations = extract_load_combinations(model)
@@ -80,18 +81,12 @@ def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optio
 
     return node_deflections
 
+
 def extract_member_force_arrays(
         model: "Pynite.FEModel3D", 
         load_combinations: Optional[list[str]] = None,
         n_points: int = 1000
     ) -> dict[str, dict]:
-    # There many things we need to specify in order to get a number:
-    # member_name -> 'forces' -> 'moment'/'shear'/'axial'/'torque' -> Optional[direction] -> load_combo -> 'max'/'min'
-    # Which is why there is a loop *four* layers deep
-    #
-    # This is also complicated by the fact that Pynite subcategorizes forces into
-    # "shear", "moment", "axial", and "torque". "shear" and "moment" require an additional
-    # direction specification to retrieve the value whereas "axial" and "torque" do not.
 
     # For each member...
     if load_combinations is None:
@@ -163,14 +158,6 @@ def extract_member_forces_minmax(
         "torque": ["torque"], # ...same with torque
     }
 
-    # There many things we need to specify in order to get a number:
-    # member_name -> 'forces' -> 'moment'/'shear'/'axial'/'torque' -> Optional[direction] -> load_combo -> 'max'/'min'
-    # Which is why there is a loop *four* layers deep
-    #
-    # This is also complicated by the fact that Pynite subcategorizes forces into
-    # "shear", "moment", "axial", and "torque". "shear" and "moment" require an additional
-    # direction specification to retrieve the value whereas "axial" and "torque" do not.
-
     # For each member...
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
@@ -228,8 +215,6 @@ def extract_member_forces_minmax(
                 parent_accumulator.pop(path)
     return forces
         
-
-
 
 def extract_member_forces_at_locations(
     model: "Pynite.FEModel3D", 
