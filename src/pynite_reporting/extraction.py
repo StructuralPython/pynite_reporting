@@ -3,12 +3,14 @@ from typing import Optional, Union, Any
 import numpy as np
 
 def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
-    reactions = {}
+    # if load_combinations is None:
+    #     load_combinations = extract_load_combinations(model)
+    reaction_results = {}
     # Go through all the nodes...
     for node_name, node in model.nodes.items():
-        reactions[node_name] = {}
+        reaction_results.setdefault(node_name, {})
         # ...and go through all reaction directions...
-        for reaction_dir in ['FX', 'FY', 'FZ']:
+        for reaction_dir in ['FX', 'FY', 'FZ', 'MX', 'MY', 'MZ']:
             reaction_name = f"Rxn{reaction_dir}"
             # Get the reactions...
             reactions = getattr(node, reaction_name)
@@ -17,17 +19,18 @@ def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
                 all([math.isclose(reaction, 0, abs_tol=1e-8) for reaction in reactions.values()])
             ):
                 # Then collect them in our analysis results dictionary
-                reactions[node_name][reaction_dir] = {lc: float(reaction) for lc, reaction in reactions.items()}
+                reaction_results[node_name][reaction_dir] = {lc: round_to_close_integer(reaction) for lc, reaction in reactions.items()}
         # But if any of the nodes in the analysis results dict are empty...
-        if reactions[node_name] == {}:
+        if reaction_results[node_name] == {}:
             # ...then drop 'em!
-            reactions.pop(node_name)
+            reaction_results.pop(node_name)
 
-    return reactions
+    return reaction_results
 
 
-def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optional[list[str]] = None)
-
+def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optional[list[str]] = None):
+    if load_combinations is None:
+        load_combinations = extract_load_combinations(model)
     node_deflections = {}
 
     # Go through all the nodes...
@@ -75,6 +78,8 @@ def extract_member_forces_minmax(
     # direction specification to retrieve the value whereas "axial" and "torque" do not.
 
     # For each member...
+    if load_combinations is None:
+        load_combinations = extract_load_combinations(model)
     forces = {}
     for member_name, member in model.members.items():
         # For each action...
@@ -103,8 +108,7 @@ def extract_member_forces_minmax(
                     path = direction
         
                 # ...and for each load combo...
-                for load_combo in load_combinations:
-                    load_combo_name = load_combo['name']
+                for load_combo_name in load_combinations:
                     accumulator[load_combo_name] = {}
                     
                     # Get the max and min value from the model
@@ -115,12 +119,23 @@ def extract_member_forces_minmax(
                         max_value = float(max_method(load_combo_name))
                         min_value = float(min_method(load_combo_name)) 
 
-                    accumulator[load_combo_name].update({f"max": max_value})
-                    accumulator[load_combo_name].update({f"min": min_value})
-            if parent_accumulator[path] is None:
+                    if math.isclose(max_value, 0, abs_tol=1e-8):
+                        max_value = 0.
+                    if math.isclose(min_value, 0, abs_tol=1e-8):
+                        min_value = 0.
+
+                    if min_value == max_value == 0.:
+                        accumulator.pop(load_combo_name)
+                        pass
+                    else:
+                        accumulator[load_combo_name].update({f"max": round_to_close_integer(max_value)})
+                        accumulator[load_combo_name].update({f"min": round_to_close_integer(min_value)})
+            if not parent_accumulator[path]:
                 parent_accumulator.pop(path)
     return forces
         
+
+
 
 def extract_member_forces_at_locations(
     model: "Pynite.FEModel3D", 
@@ -156,6 +171,8 @@ def extract_member_forces_at_locations(
     # direction specification to retrieve the value whereas "axial" and "torque" do not.
 
     # For each member...
+    if load_combinations is None:
+        load_combinations = extract_load_combinations(model)
     force_locations = {}
     for member_name, member in model.members.items():
         if member_name not in force_extraction_locations:
@@ -164,8 +181,8 @@ def extract_member_forces_at_locations(
         for loc in force_extraction_locations[member_name]:
             force_locations[member_name][loc] = {}
             accumulator = force_locations[member_name][loc]
-            for load_combo in load_combinations:
-                load_combo_name = load_combo['name']
+            for load_combo_name in load_combinations:
+                # load_combo_name = load_combo['name']
                 accumulator[load_combo_name] = {}
                 for action_name, directions in actions.items():
                     # ...and for each direction...
@@ -174,13 +191,13 @@ def extract_member_forces_at_locations(
                         if action_name == direction:
                             force_name = action_name
                         else:
-                            force_name = f"{action_name}-{direction.lower()}"
+                            force_name = f"{direction}"
                         if direction not in ("axial", "torque"):
                             force_value = float(force_method(direction, loc, load_combo_name))
                         else:
                             force_value = float(force_method(loc, load_combo_name))
         
-                        accumulator[load_combo_name].update({force_name: force_value})
+                        accumulator[load_combo_name].update({force_name: round_to_close_integer(force_value)})
     return force_locations
 
 
@@ -190,21 +207,29 @@ def extract_span_max_mins(
     actions: Optional[list[str]] = None
 ) -> dict:
     """
-    
+    Returns a dict of the following shape which represents the results extract from each span of
+    each member in 'model':
+
         {
             "member": {
                 "LC": {
-                    "M1": {
-                        "span_envelope_max": [[Yi, Xi], [Yi, Xi], ...[Yn, Xn]],
+                    "Action": { # Where Action is one of My, Mz, Fy, Fz, axial, torque, dx, dy 
                         "span_envelope_max": [
-                            {"value": Yi, "loc_abs": Xi, "loc_rel": xi, "span": Li},
-                            {"value": Yi, "loc_abs": Xi, "loc_rel": xi, "span": Li},
+                            {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
+                            ...
+                        ],
+                        "span_envelope_min": [
+                            {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
+                            ...
                         ]
                     },
 
                 }
             }
         }
+    'load_combinations': If provided, will only extract these load combinations (extract all if None)
+    'actions': If provided, will only extract these actions (extract all if None)
+        possible actions: {'Fy', 'Fz', 'My', 'Mz', 'axial', 'torque', 'dy', 'dx'}
     """
     if actions is None:
         actions = ['Fy', 'Fz', 'My', 'Mz', 'axial', 'torque', 'dy', 'dx']
@@ -217,6 +242,7 @@ def extract_span_max_mins(
         "torque": "torque",
         "dy": "deflection",
         "dz": "deflection",
+        "dx": "deflection",
     }
     max_min = ['max', 'min']
     if load_combinations is None:
@@ -233,29 +259,32 @@ def extract_span_max_mins(
                 span_envelopes[member_name][lc].setdefault(action, {})
                 method_type = action_methods[action]
                 method_name = f"{method_type}_array"
-                method = getattr(sub_members, method_name)
-                if action not in ('axial', 'torque'):
-                    result_arrays = method(action, n_points=n_points, combo_name=lc)
-                else:
-                    result_arrays = method(n_points=n_points, combo_name=lc)
                 for envelope in max_min:
                     envelope_key = f"span_envelope_{envelope}"
                     span_envelopes[member_name][lc][action].setdefault(envelope_key, [])
                     length_counter = 0
                     for sub_member in sub_members:
+                        method = getattr(sub_member, method_name)
+                        if action not in ('axial', 'torque'):
+                            result_arrays = method(action, n_points=n_points, combo_name=lc)
+                        else:
+                            result_arrays = method(n_points=n_points, combo_name=lc)
                         locator_func = getattr(np, f'arg{envelope}')
                         envelope_func = getattr(np, envelope)
                         envelope_val = envelope_func(result_arrays[1])
                         envelope_idx = locator_func(result_arrays[1])
-                        x_val_local = result_arrays[0][x_val_local]
+                        x_val_local = result_arrays[0][envelope_idx]
                         x_val_global = x_val_local + length_counter
                         x_length = result_arrays[0][-1]
                         length_counter += x_length
+                        is_cantilevered = member_is_cantilever(sub_member, model)
                         span_envelope = {
-                            "value": envelope_val,
+                            "value": round_to_close_integer(envelope_val),
                             "loc_rel": x_val_local,
+                            "span_length": sub_member.L(),
                             "loc_abs": x_val_global,
-                            "length": member_length
+                            "length": member_length,
+                            "is_cantilever": is_cantilevered
                         }
                         span_envelopes[member_name][lc][action][envelope_key].append(span_envelope)
     return span_envelopes
@@ -273,7 +302,7 @@ def extract_spans(model: "Pynite.FEModel3D") -> dict[str, list["Pynite.Member3D"
     member_spans = {}
     for member_name, member in model.members.items():
         member_spans.setdefault(member_name, [])
-        for name, span_member in model.members['My beam'].sub_members.items():
+        for name, span_member in model.members[member_name].sub_members.items():
             member_spans[member_name].append(span_member)
     return member_spans
 
@@ -283,3 +312,40 @@ def extract_load_combinations(model: "Pynite.FEModel3D") -> list[str]:
     Returns a list of the load combination names used in the model
     """
     return list(model.load_combos.keys())
+
+
+def member_is_cantilever(member: "Pynite.Member3D", model: "Pynite.FEModel3D") -> bool:
+    """
+    Returns True if 'member' is a cantilever member.
+    False if it has two supports.
+    """
+    return not all([
+        node_has_supports(model.nodes[member.i_node.name]),
+        node_has_supports(model.nodes[member.j_node.name]),
+    ])
+
+
+def node_has_supports(node: "Pynite.Node") -> bool:
+    """
+    Returns True if 'node' has any supports defined on it.
+    False if it is a "free" node.
+    """
+    return any([
+        node.support_DX,
+        node.support_DY,
+        node.support_DZ,
+        node.support_RX,
+        node.support_RY,
+        node.support_RZ
+    ])
+
+
+def round_to_close_integer(x: float, eps = 1e-8) -> float | int:
+    """
+    Rounds to the nearest int if it is REALLY close
+    """
+    # print(f"{abs((abs(round(x)) - abs(x))=} | {eps=} | {((abs(round(x)) - abs(x)) < eps)=}")
+    if abs(abs(round(x)) - abs(x)) < eps:
+        return round(x)
+    else:
+        return x
