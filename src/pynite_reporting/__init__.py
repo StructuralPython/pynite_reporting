@@ -3,6 +3,8 @@ pynite_reporting: A 3rd party package to aid in extracting
 results from solved Pynite.FEModel3D objects.
 """
 
+__version__ = "0.1.0"
+
 from .extraction import (
     extract_reactions,
     extract_node_deflections,
