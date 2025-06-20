@@ -1,8 +1,8 @@
-# Easily extract results from Pynite...
-
-# with `pynite_reporting`!
+# Easily extract results from Pynite... with `pynite_reporting`!
 
 PyniteFEA is excellent and it is generally design-ready...if it weren't for all the trouble we have to go through to get results out. This is not unique to Pynite, most FEA programs require a significant amount of post-processing to prepare the actual analysis results for design.
+
+> **Note:** As of 2025-06-19, this package has only been "casually tested" (meaning simple visual checking of outputs). No test suite has been written (but is coming).
 
 ## Enter `pynite_reporting`
 
