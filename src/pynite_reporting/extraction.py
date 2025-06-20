@@ -2,6 +2,7 @@ import math
 from typing import Optional, Union, Any
 import numpy as np
 
+
 ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
 
 
@@ -28,9 +29,12 @@ ACTION_METHODS = {
 REACTIONS = ['RxnFX', 'RxnFY', 'RxnFZ', 'RxnMX', 'RxnMY', 'RxnMZ']
 
 
-def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
-    # if load_combinations is None:
-    #     load_combinations = extract_load_combinations(model)
+def extract_reactions(
+    model: "Pynite.FEModel3D", 
+    load_combinations: Optional[list[str]] = None
+) -> dict[str, dict]:
+    if load_combinations is None:
+        load_combinations = extract_load_combinations(model)
     reaction_results = {}
     # Go through all the nodes...
     for node_name, node in model.nodes.items():
@@ -45,7 +49,11 @@ def extract_reactions(model: "Pynite.FEModel3D") -> dict[str, dict]:
                 all([math.isclose(reaction, 0, abs_tol=1e-8) for reaction in reactions.values()])
             ):
                 # Then collect them in our analysis results dictionary
-                reaction_results[node_name][reaction_dir] = {lc: round_to_close_integer(reaction) for lc, reaction in reactions.items()}
+                reaction_results[node_name][reaction_dir] = {
+                    lc: round_to_close_integer(reaction) 
+                    for lc, reaction in reactions.items()
+                    if lc in load_combinations
+                }
         # But if any of the nodes in the analysis results dict are empty...
         if reaction_results[node_name] == {}:
             # ...then drop 'em!
@@ -72,7 +80,11 @@ def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optio
                 all([math.isclose(deflection, 0, abs_tol=1e-8) for deflection in deflections.values()])
             ):
                 # Then collect them in our analysis results dictionary
-                node_deflections[node_name][defl_dir] = {lc: float(defl) for lc, defl in deflections.items()}
+                node_deflections[node_name][defl_dir] = {
+                    lc: float(defl) 
+                    for lc, defl in deflections.items()
+                    if lc in load_combinations
+                }
 
         # But if any of the nodes in the analysis results dict are empty...
         if node_deflections[node_name] == {}:
@@ -227,11 +239,31 @@ def extract_member_forces_at_locations(
     Extracts forces at selected members at the locations specified.
 
     'force_extraction_locations': a dict in the following format:
+
         {"member01": [0, 2200, 4300], "member02": [3423, 1500]}
+
         Where:
         - "member01" is a member name
         - The values are a list of locations on the member from which to
             extract results from.
+
+    'force_extraction_ratios': a dict in the following format:
+
+            {
+                "member01": [0.25, 0.5, 0.77], 
+                "member02": [0.333, 0.666],
+                ...    
+            }
+
+        Where:
+        - "member01" is a member name
+        - The values are a list of ratios on the member from which to
+            extract results from. The location is calculated by 
+
+            ratio * member.L() # length
+
+            Whether the member is the PhysMember3D (main member)
+            or a Member3D (sub member, i.e. an individual span).
     """
     force_locations = {}
     if load_combinations is None:
@@ -267,8 +299,6 @@ def extract_member_forces_at_locations(
                 force_extraction_ratios,
                 load_combinations
             )
-
-                
     return force_locations
 
 
@@ -312,7 +342,7 @@ def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_
     return acc
 
 
-def extract_span_max_mins(
+def extract_span_forces_minmax(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None, 
     actions: Optional[list[str]] = None
