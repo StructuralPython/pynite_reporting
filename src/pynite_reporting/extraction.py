@@ -32,7 +32,7 @@ NODE_DISPLACEMENTS = ['DX', 'DY', 'DZ', 'RX', 'RY', 'RZ']
 REACTIONS = ['RxnFX', 'RxnFY', 'RxnFZ', 'RxnMX', 'RxnMY', 'RxnMZ']
 
 
-def extract_reactions(
+def extract_node_reactions(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None,
     results_key: Optional[str] = "node_reactions",
@@ -64,7 +64,7 @@ def extract_reactions(
                     if lc in load_combinations
                 }
         # But if any of the nodes in the analysis results dict are empty...
-        if reaction_results[node_name] == {}:
+        if inner_acc == {}:
             # ...then drop 'em!
             reaction_results.pop(node_name)
     return reaction_results
@@ -102,18 +102,18 @@ def extract_node_deflections(
                 }
 
         # But if any of the nodes in the analysis results dict are empty...
-        if node_deflections[node_name] == {}:
+        if inner_acc == {}:
             # ...then drop 'em!
             node_deflections.pop(node_name)
 
     return node_deflections
 
 
-def extract_member_force_arrays(
+def extract_member_arrays(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None,
     n_points: int = 1000,
-    results_key: Optional[str] = "frame_arrays"
+    results_key: Optional[str] = "action_arrays"
 ) -> dict[str, dict]:
     """
     
@@ -185,10 +185,10 @@ def extract_member_force_arrays(
     return forces
 
 
-def extract_member_forces_minmax(
+def extract_member_envelopes(
         model: "Pynite.FEModel3D", 
         load_combinations: Optional[list[str]] = None,
-        results_key: Optional[str] = "frame_envelopes"
+        results_key: Optional[str] = "action_envelopes"
     ) -> dict[str, dict]:
 
     # For each member...
@@ -236,13 +236,13 @@ def extract_member_forces_minmax(
     return forces
         
 
-def extract_member_forces_at_locations(
+def extract_member_actions_by_location(
     model: "Pynite.FEModel3D", 
     force_extraction_locations: Optional[dict[str, list[float]]] = None,
     force_extraction_ratios: Optional[dict[str, list[float]]] = None,
     load_combinations: Optional[list[str]] = None,
     by_span: bool = False,
-    results_key: Optional[str] = "frame_force_locations"
+    results_key: Optional[str] = "action_locations"
 ) -> dict[str, dict]:
     """
     Extracts forces at selected members at the locations specified.
@@ -285,16 +285,20 @@ def extract_member_forces_at_locations(
     for member_name, member in model.members.items():
         force_locations.setdefault(member_name, {})
         inner_acc = force_locations[member_name]
+        parent_acc = force_locations
+        path = member_name
         if results_key is not None:
             force_locations[member_name].setdefault(results_key, {})
             inner_acc = force_locations[member_name][results_key]
+            parent_acc = force_locations[member_name]
+            path = results_key
         if member_name not in (
             list(force_extraction_locations.keys()) 
             + list(force_extraction_ratios.keys())
         ):
             continue
         if by_span:
-            inner_acc.setdefault("by_span": [])
+            inner_acc.setdefault("by_span", [])
             for sub_member in member.sub_members.values():
                 inner_acc['by_span'].append(
                     collect_forces_at_location(
@@ -306,7 +310,8 @@ def extract_member_forces_at_locations(
                     )
                 )
         else:
-            inner_acc = collect_forces_at_location(
+            
+            parent_acc[path] = collect_forces_at_location(
                 member,
                 member_name,
                 force_extraction_locations,
@@ -341,7 +346,7 @@ def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_
         acc[load_combo_name] = {}
         for force_direction, method_type in ACTION_METHODS.items():
             force_method = getattr(member, method_type)
-            if force_method not in ("axial", "torque"):
+            if method_type not in ("axial", "torque"):
                 force_value = round_to_close_integer(force_method(force_direction, loc, load_combo_name))
             else:
                 force_value = round_to_close_integer(force_method(loc, load_combo_name))
@@ -349,7 +354,7 @@ def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_
     return acc
 
 
-def extract_span_forces_minmax(
+def extract_span_envelopes(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None, 
     actions: Optional[list[str]] = None,
@@ -362,8 +367,8 @@ def extract_span_forces_minmax(
         {
             "member": {
                 "result_key": {
-                    "LC": {
-                        "Action": { # Where Action is one of My, Mz, Fy, Fz, axial, torque, dx, dy 
+                    "Action": { # Where Action is one of My, Mz, Fy, Fz, axial, torque, dx, dy 
+                        "LC1": { 
                             "max": [
                                 {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
                                 ...
@@ -393,14 +398,18 @@ def extract_span_forces_minmax(
     for member_name, sub_members in member_spans.items():
         member_length = model.members[member_name].L()
         span_envelopes.setdefault(member_name, {})
-        for lc in load_combinations:
-            span_envelopes[member_name].setdefault(lc, {})
-            for force_direction, method_type in ACTION_METHODS.items():
-                span_envelopes[member_name][lc].setdefault(force_direction, {})
+        inner_acc = span_envelopes[member_name]
+        if results_key is not None:
+            span_envelopes[member_name].setdefault(results_key, {})
+            inner_acc = span_envelopes[member_name][results_key]
+        for force_direction, method_type in ACTION_METHODS.items():
+            inner_acc.setdefault(force_direction, {})
+            for lc in load_combinations:
+                inner_acc[force_direction].setdefault(lc, {})
                 method_name = f"{method_type}_array"
                 for envelope in max_min:
                     envelope_key = f"span_envelope_{envelope}"
-                    span_envelopes[member_name][lc][force_direction].setdefault(envelope_key, [])
+                    inner_acc[force_direction][lc].setdefault(envelope_key, [])
                     length_counter = 0
                     for sub_member in sub_members:
                         method = getattr(sub_member, method_name)
@@ -425,7 +434,7 @@ def extract_span_forces_minmax(
                             "length": member_length,
                             "is_cantilever": is_cantilevered
                         }
-                        span_envelopes[member_name][lc][force_direction][envelope_key].append(span_envelope)
+                        inner_acc[force_direction][lc][envelope_key].append(span_envelope)
     return span_envelopes
 
 
