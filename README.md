@@ -6,7 +6,7 @@ PyniteFEA is excellent and it is generally design-ready...if it weren't for all 
 
 This package provides a series of functions that consume a `Pynite.FEModel3D` object and returns consistently-structured dictionaries of analysis results.
 
-> **Note:** As of 2025-06-19, this package has only been "casually tested" (meaning simple visual checking of outputs). No test suite has been written (but is coming).
+> **Note:** As of 2025-06-25, this package has only been "casually tested" (meaning simple visual checking of outputs). No test suite has been written (but is coming).
 
 
 ## Installation
@@ -48,51 +48,62 @@ lcs = [
 # All the below functions optionally take a list of load combos
 # so you can select which combos to extract
 
+## Additionally, each function accepts a results_key parameter.
+## This optional parameter is set to a default str value, unique for each function.
+## When you set the results_key=None, then your results tree will be one level shallower.
+
 # Return reactions for all supports, all load combos
-reactions = pr.extract_reactions(
+reactions = pr.extract_node_reactions(
     model,
-    # load_combinations=lcs
+    # load_combinations=lcs,
+    # results_key=None
 )
-
-# Return force arrays for all members, all load combos
-force_arrays = pr.extract_member_force_arrays(
-    model,
-    # load_combinations=lcs
-)
-
-# Return force min/max envelope for all members, all load combos
-# Min/Max values will not necessarily be at concurrent locations
-forces_minmax = pr.extract_member_forces_minmax(
-    model,
-    # load_combinations=lcs
-)
-
-# Return force min/max envelope for each span in all members, all load combos
-forces_minmax_spans = pr.extract_span_forces_minmax(
-    model,
-    # load_combinations=lcs
-)
-
-# Return forces for all load combos at specific locations along the global member length
-forces_at_locations = pr.extract_member_forces_at_locations(
-    model, 
-    force_extraction_locations={"Member01": [0, 2000, 3600]},
-    # load_combinations=lcs
-)
-
-# Return forces for all load combos at 1/4 points for each span of the given members
-forces_at_location_ratios = pr.extract_member_forces_at_locations(
-    model, 
-    force_extraction_ratios={"Member05": [0.25, 0.5, 0.75]}, 
-    by_span=True,
-    # load_combinations=lcs
-    )
 
 # Returns all node deflections for all load combos
 node_deflections = pr.extract_node_deflections(
     model,
-    # load_combinations=lcs
+    # load_combinations=lcs,
+    # results_key=None
 )
+
+# Return force arrays for all members, all load combos
+force_arrays = pr.extract_member_arrays(
+    model,
+    # load_combinations=lcs,
+    # results_key=None
+)
+
+# Return force min/max/absmax envelope for all members, all load combos
+# Values will not necessarily be at concurrent locations
+forces_minmax = pr.extract_member_envelopes(
+    model,
+    # load_combinations=lcs,
+    # results_key=None
+)
+
+# Return force min/max envelope for each span in all members, all load combos
+forces_minmax_spans = pr.extract_span_envelopes(
+    model,
+    # load_combinations=lcs,
+    # results_key=None
+)
+
+# Return forces for all load combos at specific locations along the global member length
+forces_at_locations = pr.extract_member_actions_by_location(
+    model, 
+    force_extraction_locations={"Member01": [0, 2000, 3600]},
+    # load_combinations=lcs,
+    # results_key=None
+)
+
+# Return forces for all load combos at 1/4 points for *each span* of the given members
+forces_at_location_ratios = pr.extract_member_actions_by_location(
+    model, 
+    force_extraction_ratios={"Member05": [0.25, 0.5, 0.75]}, 
+    by_span=True,
+    # load_combinations=lcs,
+    # results_key=None
+    )
 ```
 
 **And there you have it!** Does that not make your life a little bit easier?
