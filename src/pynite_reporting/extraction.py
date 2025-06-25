@@ -136,10 +136,10 @@ def extract_node_deflections(
 
 def extract_member_arrays(
     model: "Pynite.FEModel3D", 
-    load_combinations: Optional[list[str]] = None,
     n_points: int = 1000,
     as_lists: bool = False,
-    results_key: Optional[str] = "action_arrays"
+    results_key: Optional[str] = "action_arrays",
+    load_combinations: Optional[list[str]] = None,
 ) -> dict[str, dict]:
     """
     Returns all member action arrays from 'model'. Each array is of
