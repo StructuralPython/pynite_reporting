@@ -3,16 +3,16 @@ from typing import Optional, Union, Any
 import numpy as np
 
 
-ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
+# ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
 
 
-ACTIONS_BY_TYPE = {
-        "shear": ["Fy", "Fz"], # action: [possible direction(s)]
-        "moment": ["Mz", "My"],
-        "axial": ["axial"], # There are no axial directions; axial is axial!
-        "torque": ["torque"], # ...same with torque
-        "deflection": ['dx', 'dy', 'dz']
-}
+# ACTIONS_BY_TYPE = {
+#         "shear": ["Fy", "Fz"], # action: [possible direction(s)]
+#         "moment": ["Mz", "My"],
+#         "axial": ["axial"], # There are no axial directions; axial is axial!
+#         "torque": ["torque"], # ...same with torque
+#         "deflection": ['dx', 'dy', 'dz']
+# }
 
 ACTION_METHODS = {
     "Fy": "shear",
@@ -26,21 +26,30 @@ ACTION_METHODS = {
     "dx": "deflection",
 }
 
+NODE_REACTIONS = ['FX', 'FY', 'FZ', 'MX', 'MY', 'MZ']
+NODE_DISPLACEMENTS = ['DX', 'DY', 'DZ', 'RX', 'RY', 'RZ']
+
 REACTIONS = ['RxnFX', 'RxnFY', 'RxnFZ', 'RxnMX', 'RxnMY', 'RxnMZ']
 
 
 def extract_reactions(
     model: "Pynite.FEModel3D", 
-    load_combinations: Optional[list[str]] = None
+    load_combinations: Optional[list[str]] = None,
+    results_key: Optional[str] = "node_reactions",
 ) -> dict[str, dict]:
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
+
     reaction_results = {}
     # Go through all the nodes...
     for node_name, node in model.nodes.items():
         reaction_results.setdefault(node_name, {})
         # ...and go through all reaction directions...
-        for reaction_dir in ['FX', 'FY', 'FZ', 'MX', 'MY', 'MZ']:
+        inner_acc = reaction_results[node_name]
+        if results_key is not None:
+            reaction_results[node_name].setdefault(results_key, {})
+            inner_acc = reaction_results[node_name][results_key]
+        for reaction_dir in NODE_REACTIONS:
             reaction_name = f"Rxn{reaction_dir}"
             # Get the reactions...
             reactions = getattr(node, reaction_name)
@@ -49,7 +58,7 @@ def extract_reactions(
                 all([math.isclose(reaction, 0, abs_tol=1e-8) for reaction in reactions.values()])
             ):
                 # Then collect them in our analysis results dictionary
-                reaction_results[node_name][reaction_dir] = {
+                inner_acc[reaction_dir] = {
                     lc: round_to_close_integer(reaction) 
                     for lc, reaction in reactions.items()
                     if lc in load_combinations
@@ -58,21 +67,27 @@ def extract_reactions(
         if reaction_results[node_name] == {}:
             # ...then drop 'em!
             reaction_results.pop(node_name)
-
     return reaction_results
 
 
-def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optional[list[str]] = None):
+def extract_node_deflections(
+    model: "Pynite.FEModel3D", 
+    load_combinations: Optional[list[str]] = None,
+    results_key: Optional[str] = "node_deflections",
+):
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
     node_deflections = {}
-
     # Go through all the nodes...
     for node_name, node in model.nodes.items():
         node_deflections[node_name] = {}
 
+        inner_acc = node_deflections[node_name]
+        if results_key is not None:
+            node_deflections[node_name].setdefault(results_key, {})
+            inner_acc = node_deflections[node_name][results_key]
         # ...and go through all deflection directions...
-        for defl_dir in ['DX', 'DY', 'DZ', 'RX', 'RY', 'RZ']:
+        for defl_dir in NODE_DISPLACEMENTS:
             # Get the deflections...
             deflections = getattr(node, defl_dir)
             # ...and if the deflections are not all basically 0.0...
@@ -80,7 +95,7 @@ def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optio
                 all([math.isclose(deflection, 0, abs_tol=1e-8) for deflection in deflections.values()])
             ):
                 # Then collect them in our analysis results dictionary
-                node_deflections[node_name][defl_dir] = {
+                inner_acc[defl_dir] = {
                     lc: float(defl) 
                     for lc, defl in deflections.items()
                     if lc in load_combinations
@@ -95,11 +110,15 @@ def extract_node_deflections(model: "Pynite.FEModel3D", load_combinations: Optio
 
 
 def extract_member_force_arrays(
-        model: "Pynite.FEModel3D", 
-        load_combinations: Optional[list[str]] = None,
-        n_points: int = 1000
-    ) -> dict[str, dict]:
-
+    model: "Pynite.FEModel3D", 
+    load_combinations: Optional[list[str]] = None,
+    n_points: int = 1000,
+    results_key: Optional[str] = "frame_arrays"
+) -> dict[str, dict]:
+    """
+    
+    """
+    forces = {}
     # For each member...
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
@@ -107,122 +126,111 @@ def extract_member_force_arrays(
     for member_name, member in model.members.items():
         # For each action...
         forces[member_name] = {}
-        for action_name, directions in ACTIONS_BY_TYPE.items():
-            forces[member_name][action_name] = {}
-            # ...and for each direction...
-            for direction in directions:
-                array_method = getattr(member, f"{action_name}_array")
-                if action_name == direction:
-                    forces[member_name][action_name] = {}
-                    accumulator = forces[member_name][action_name]
+        inner_acc = forces[member_name]
+        if results_key is not None:
+            forces[member_name].setdefault(results_key, {})
+            inner_acc = forces[member_name][results_key]
+        for force_direction, method_type in ACTION_METHODS.items():
+            inner_acc.setdefault(force_direction, {})
+            array_method = getattr(member, f"{method_type}_array")
+            accumulator = inner_acc[force_direction]
+            parent_accumulator = inner_acc
+            path = force_direction
 
-                    # The 'parent_accumulator' and 'path' allow me to update the action
-                    # with None if there are no results
-                    parent_accumulator = forces[member_name]
-                    path = action_name
-                else:
-                    forces[member_name][action_name][direction] = {}
-                    accumulator = forces[member_name][action_name][direction]
+            # if force_direction == method_type:
+            #     accumulator = inner_acc[action_name]
 
-                    # The 'parent_accumulator' and 'path' allow me to update the action
-                    # with None if there are no results
-                    parent_accumulator = forces[member_name][action_name]
-                    path = direction
-        
-                # ...and for each load combo...
-                for load_combo_name in load_combinations:
-                    accumulator[load_combo_name] = {}
-                    
-                    # Get the max and min value from the model
-                    pop_next = False
-                    try:
-                        if direction not in ("axial", "torque"):
-                            result_arrays = array_method(direction, combo_name=load_combo_name, n_points=n_points)
-                        else:
-                            result_arrays = array_method(combo_name=load_combo_name, n_points=n_points)
-                    except TypeError: # AxialDeflection method is receiving None for a .P1, I think
-                        parent_accumulator[path] = None
-                        continue
-                    if (
-                        (result_arrays.dtype == "object")
-                        or
-                        np.allclose(result_arrays[1], np.zeros(len(result_arrays[1])), atol=1e-8)
-                    ):
-                        accumulator.pop(load_combo_name)
-                        pass
+            #     # The 'parent_accumulator' and 'path' allow me to update the action
+            #     # with None if there are no results
+            #     parent_accumulator = inner_acc
+            #     path = action_name
+            # else:
+            #     inner_acc[action_name][direction] = {}
+            #     accumulator = inner_acc[action_name][direction]
+
+            #     # The 'parent_accumulator' and 'path' allow me to update the action
+            #     # with None if there are no results
+            #     parent_accumulator = inner_acc[action_name]
+            #     path = direction
+    
+            # ...and for each load combo...
+            for load_combo_name in load_combinations:
+                accumulator.setdefault(load_combo_name, {})
+                
+                # pop_next = False
+
+                # hacky fix: AxialDeflection method is receiving None for a .P1, I think (Pynite error to be fixed)
+                try:
+                    if method_type not in ("axial", "torque"):
+                        result_arrays = array_method(force_direction, combo_name=load_combo_name, n_points=n_points)
                     else:
-                        accumulator[load_combo_name] = result_arrays
-                    if pop_next:
-                        parent_accumulator.pop(path)
-                if not parent_accumulator[path]:
-                    parent_accumulator.pop(path)
+                        result_arrays = array_method(combo_name=load_combo_name, n_points=n_points)
+                except TypeError:
+                    parent_accumulator[path] = None
+                    continue
+
+                if (
+                    (result_arrays.dtype == "object") # An array with None (or full of None_s)
+                    or
+                    np.allclose(result_arrays[1], np.zeros(len(result_arrays[1])), atol=1e-8)
+                ):
+                    accumulator.pop(load_combo_name)
+                    pass
+                else:
+                    accumulator[load_combo_name] = result_arrays
+                # if pop_next:
+                #     parent_accumulator.pop(path)
+            if not parent_accumulator[path]:
+                parent_accumulator.pop(path)
     return forces
 
 
 def extract_member_forces_minmax(
         model: "Pynite.FEModel3D", 
-        load_combinations: Optional[list[str]] = None
+        load_combinations: Optional[list[str]] = None,
+        results_key: Optional[str] = "frame_envelopes"
     ) -> dict[str, dict]:
-    actions = {
-        "shear": ["Fy", "Fz"], # action: [possible direction(s)]
-        "moment": ["Mz", "My"],
-        "axial": ["axial"], # There are no axial directions; axial is axial!
-        "torque": ["torque"], # ...same with torque
-    }
 
     # For each member...
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
     forces = {}
     for member_name, member in model.members.items():
-        # For each action...
         forces[member_name] = {}
-        for action_name, directions in ACTIONS_BY_TYPE.items():
-            forces[member_name][action_name] = {}
-            # ...and for each direction...
-            for direction in directions:
-                max_method = getattr(member, f"max_{action_name}")
-                min_method = getattr(member, f"min_{action_name}")
-                if action_name == direction:
-                    forces[member_name][action_name] = {}
-                    accumulator = forces[member_name][action_name]
+        inner_acc = forces[member_name]
+        if results_key is not None:
+            forces[member_name].setdefault(results_key, {})
+            inner_acc = forces[member_name][results_key]
+        for force_direction, method_type in ACTION_METHODS.items():
+            inner_acc[force_direction] = {}
+            max_method = getattr(member, f"max_{method_type}")
+            min_method = getattr(member, f"min_{method_type}")
+            accumulator = inner_acc[force_direction]
+            parent_accumulator = inner_acc
+            path = force_direction
 
-                    # The 'parent_accumulator' and 'path' allow me to update the action
-                    # with None if there are no results
-                    parent_accumulator = forces[member_name]
-                    path = action_name
+            for load_combo_name in load_combinations:
+                accumulator[load_combo_name] = {}
+                
+                if method_type not in ("axial", "torque"):
+                    max_value = float(max_method(force_direction, load_combo_name))
+                    min_value = float(min_method(force_direction, load_combo_name))
                 else:
-                    forces[member_name][action_name][direction] = {}
-                    accumulator = forces[member_name][action_name][direction]
+                    max_value = float(max_method(load_combo_name))
+                    min_value = float(min_method(load_combo_name)) 
+                abs_max_value = max([abs(min_value), abs(max_value)])
+                if math.isclose(max_value, 0, abs_tol=1e-8):
+                    max_value = 0.
+                if math.isclose(min_value, 0, abs_tol=1e-8):
+                    min_value = 0.
 
-                    # The 'parent_accumulator' and 'path' allow me to update the action
-                    # with None if there are no results
-                    parent_accumulator = forces[member_name][action_name]
-                    path = direction
-        
-                # ...and for each load combo...
-                for load_combo_name in load_combinations:
-                    accumulator[load_combo_name] = {}
-                    
-                    # Get the max and min value from the model
-                    if direction not in ("axial", "torque"):
-                        max_value = float(max_method(direction, load_combo_name))
-                        min_value = float(min_method(direction, load_combo_name))
-                    else:
-                        max_value = float(max_method(load_combo_name))
-                        min_value = float(min_method(load_combo_name)) 
-
-                    if math.isclose(max_value, 0, abs_tol=1e-8):
-                        max_value = 0.
-                    if math.isclose(min_value, 0, abs_tol=1e-8):
-                        min_value = 0.
-
-                    if min_value == max_value == 0.:
-                        accumulator.pop(load_combo_name)
-                        pass
-                    else:
-                        accumulator[load_combo_name].update({f"max": round_to_close_integer(max_value)})
-                        accumulator[load_combo_name].update({f"min": round_to_close_integer(min_value)})
+                if min_value == max_value == 0.:
+                    accumulator.pop(load_combo_name)
+                    pass
+                else:
+                    accumulator[load_combo_name].update({f"max": round_to_close_integer(max_value)})
+                    accumulator[load_combo_name].update({f"min": round_to_close_integer(min_value)})
+                    accumulator[load_combo_name].update({f"absmax": round_to_close_integer(abs_max_value)})
             if not parent_accumulator[path]:
                 parent_accumulator.pop(path)
     return forces
@@ -233,7 +241,8 @@ def extract_member_forces_at_locations(
     force_extraction_locations: Optional[dict[str, list[float]]] = None,
     force_extraction_ratios: Optional[dict[str, list[float]]] = None,
     load_combinations: Optional[list[str]] = None,
-    by_span: bool = False
+    by_span: bool = False,
+    results_key: Optional[str] = "frame_force_locations"
 ) -> dict[str, dict]:
     """
     Extracts forces at selected members at the locations specified.
@@ -265,24 +274,29 @@ def extract_member_forces_at_locations(
             Whether the member is the PhysMember3D (main member)
             or a Member3D (sub member, i.e. an individual span).
     """
-    force_locations = {}
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
-    force_locations = {}
     if force_extraction_locations is None:
         force_extraction_locations = {}
     if force_extraction_ratios is None:
         force_extraction_ratios = {}
+    
+    force_locations = {}
     for member_name, member in model.members.items():
+        force_locations.setdefault(member_name, {})
+        inner_acc = force_locations[member_name]
+        if results_key is not None:
+            force_locations[member_name].setdefault(results_key, {})
+            inner_acc = force_locations[member_name][results_key]
         if member_name not in (
             list(force_extraction_locations.keys()) 
             + list(force_extraction_ratios.keys())
         ):
             continue
         if by_span:
-            force_locations.setdefault(member_name, [])
+            inner_acc.setdefault("by_span": [])
             for sub_member in member.sub_members.values():
-                force_locations[member_name].append(
+                inner_acc['by_span'].append(
                     collect_forces_at_location(
                         sub_member,
                         member_name,
@@ -292,7 +306,7 @@ def extract_member_forces_at_locations(
                     )
                 )
         else:
-            force_locations[member_name] = collect_forces_at_location(
+            inner_acc = collect_forces_at_location(
                 member,
                 member_name,
                 force_extraction_locations,
@@ -324,28 +338,22 @@ def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_
     loc = location
     acc = {}
     for load_combo_name in load_combinations:
-        # load_combo_name = load_combo['name']
         acc[load_combo_name] = {}
-        for action_name, directions in ACTIONS_BY_TYPE.items():
-            # ...and for each direction...
-            for direction in directions:
-                force_method = getattr(member, action_name)
-                if action_name == direction:
-                    force_name = action_name
-                else:
-                    force_name = f"{direction}"
-                if direction not in ("axial", "torque"):
-                    force_value = round_to_close_integer(force_method(direction, loc, load_combo_name))
-                else:
-                    force_value = round_to_close_integer(force_method(loc, load_combo_name))
-                acc[load_combo_name].update({force_name: force_value})
+        for force_direction, method_type in ACTION_METHODS.items():
+            force_method = getattr(member, method_type)
+            if force_method not in ("axial", "torque"):
+                force_value = round_to_close_integer(force_method(force_direction, loc, load_combo_name))
+            else:
+                force_value = round_to_close_integer(force_method(loc, load_combo_name))
+            acc[load_combo_name].update({force_direction: force_value})
     return acc
 
 
 def extract_span_forces_minmax(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None, 
-    actions: Optional[list[str]] = None
+    actions: Optional[list[str]] = None,
+    results_key: Optional[str] = "frame_span_envelopes",
 ) -> dict:
     """
     Returns a dict of the following shape which represents the results extract from each span of
@@ -353,20 +361,22 @@ def extract_span_forces_minmax(
 
         {
             "member": {
-                "LC": {
-                    "Action": { # Where Action is one of My, Mz, Fy, Fz, axial, torque, dx, dy 
-                        "span_envelope_max": [
-                            {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
-                            ...
-                        ],
-                        "span_envelope_min": [
-                            {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
-                            ...
-                        ]
-                    },
+                "result_key": {
+                    "LC": {
+                        "Action": { # Where Action is one of My, Mz, Fy, Fz, axial, torque, dx, dy 
+                            "max": [
+                                {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
+                                ...
+                            ],
+                            "min": [
+                                {"value": Yi, "loc_rel": xi, "span_length": li, "loc_abs": Xi, "span": Li},
+                                ...
+                            ]
+                        },
 
-                }
-            }
+                    },
+                },
+            },
         }
     'load_combinations': If provided, will only extract these load combinations (extract all if None)
     'actions': If provided, will only extract these actions (extract all if None)
@@ -374,17 +384,6 @@ def extract_span_forces_minmax(
     """
     if actions is None:
         actions = ['Fy', 'Fz', 'My', 'Mz', 'axial', 'torque', 'dy', 'dx']
-    action_methods = {
-        "Fy": "shear",
-        "Fz": "shear",
-        "My": "moment",
-        "Mz": "moment",
-        "axial": "axial",
-        "torque": "torque",
-        "dy": "deflection",
-        "dz": "deflection",
-        "dx": "deflection",
-    }
     max_min = ['max', 'min']
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
@@ -396,18 +395,17 @@ def extract_span_forces_minmax(
         span_envelopes.setdefault(member_name, {})
         for lc in load_combinations:
             span_envelopes[member_name].setdefault(lc, {})
-            for action in actions:
-                span_envelopes[member_name][lc].setdefault(action, {})
-                method_type = action_methods[action]
+            for force_direction, method_type in ACTION_METHODS.items():
+                span_envelopes[member_name][lc].setdefault(force_direction, {})
                 method_name = f"{method_type}_array"
                 for envelope in max_min:
                     envelope_key = f"span_envelope_{envelope}"
-                    span_envelopes[member_name][lc][action].setdefault(envelope_key, [])
+                    span_envelopes[member_name][lc][force_direction].setdefault(envelope_key, [])
                     length_counter = 0
                     for sub_member in sub_members:
                         method = getattr(sub_member, method_name)
-                        if action not in ('axial', 'torque'):
-                            result_arrays = method(action, n_points=n_points, combo_name=lc)
+                        if method_type not in ('axial', 'torque'):
+                            result_arrays = method(force_direction, n_points=n_points, combo_name=lc)
                         else:
                             result_arrays = method(n_points=n_points, combo_name=lc)
                         locator_func = getattr(np, f'arg{envelope}')
@@ -427,7 +425,7 @@ def extract_span_forces_minmax(
                             "length": member_length,
                             "is_cantilever": is_cantilevered
                         }
-                        span_envelopes[member_name][lc][action][envelope_key].append(span_envelope)
+                        span_envelopes[member_name][lc][force_direction][envelope_key].append(span_envelope)
     return span_envelopes
 
 
