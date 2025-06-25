@@ -69,6 +69,8 @@ node_deflections = pr.extract_node_deflections(
 # Return force arrays for all members, all load combos
 force_arrays = pr.extract_member_arrays(
     model,
+    # n_points=1000,
+    # as_lists=False,
     # load_combinations=lcs,
     # results_key=None
 )
