@@ -12,7 +12,9 @@ from .extraction import (
     extract_member_envelopes,
     extract_member_actions_by_location,
     extract_span_envelopes,
-
+    merge_trees,
+    to_json,
+    from_json,
     extract_load_combinations,
     extract_spans,
     round_to_close_integer,
