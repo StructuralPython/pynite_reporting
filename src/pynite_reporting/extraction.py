@@ -2,6 +2,8 @@ import math
 from typing import Optional, Union, Any
 import numpy as np
 import deepmerge
+import pathlib
+import json
 
 
 # ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
@@ -575,3 +577,28 @@ def merge_trees(result_trees: list[dict[str, dict]]) -> dict[str, dict]:
     for result_tree in result_trees:
         acc = deepmerge.always_merger.merge(acc, result_tree)
     return acc
+
+
+def to_json(filepath: str | pathlib.Path, result_tree: dict[str, dict]) -> None:
+    """
+    Write the data in 'result_tree' to 'filepath'.
+    
+    This is a convenience function that allows you to write to JSON with
+    one line of code. Nothing fancy.
+    """
+    filepath = pathlib.Path(filepath)
+    with open(filepath, 'w') as file:
+        json.dump(result_tree, file)
+
+
+def from_json(filepath: str | pathlib.Path) -> dict[str, dict]:
+    """
+    Read the data from 'filepath' and return the result tree.
+
+    This is a convenience function that allows you to read JSON
+    files with one line of code. Nothing fancy.
+    """
+    filepath = pathlib.Path(filepath)
+    with open(filepath, 'r') as file:
+        result_tree = json.load(file)
+    return result_tree

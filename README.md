@@ -108,6 +108,28 @@ forces_at_location_ratios = pr.extract_member_actions_by_location(
 
 **And there you have it!** Does that not make your life a little bit easier?
 
+## Merge result trees
+
+> **NEW** in v0.2.0
+
+If you are planning on serializing your results to a JSON file, then you can merge all of your result tree (dictionaries) into a single dictionary by using `merge_trees`:
+
+e.g.
+
+```python
+merged_tree = pr.merge_trees([force_arrays, forces_minmax, forces_at_locations])
+```
+
+## Convenience functions
+
+There are one-line function for writing/reading dictionaries to JSON files:
+
+```python
+pr.to_json("results.json", merged_tree)
+
+round_tripped_tree = pr.from_json("results.json")
+```
+
 ## FYI (Opinions at work!)
 
 I have made the decision to _remove unnecessary results_ from being returned by _some_ of these functions.
