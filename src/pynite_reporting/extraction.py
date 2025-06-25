@@ -138,6 +138,7 @@ def extract_member_arrays(
     model: "Pynite.FEModel3D", 
     load_combinations: Optional[list[str]] = None,
     n_points: int = 1000,
+    as_lists: bool = False,
     results_key: Optional[str] = "action_arrays"
 ) -> dict[str, dict]:
     """
@@ -151,6 +152,9 @@ def extract_member_arrays(
         When None, returns all combinations. Default is None.
     'n_points': The number of points to use to discretize the array.
         default is 1000.
+    'as_lists': If True, then the native numpy arrays returned from
+        Pynite will be converted to lists. Useful when serializing
+        to JSON.
     'results_key': Optional str value used to nest your results
         more descriptively in the tree. Useful when merging
         multiple results trees. Setting to None will make
@@ -195,7 +199,10 @@ def extract_member_arrays(
                     accumulator.pop(load_combo_name)
                     pass
                 else:
-                    accumulator[load_combo_name] = result_arrays
+                    if as_lists:
+                        accumulator[load_combo_name] = result_arrays.tolist()
+                    else:
+                        accumulator[load_combo_name] = result_arrays
             if not parent_accumulator[path]:
                 parent_accumulator.pop(path)
     return forces
