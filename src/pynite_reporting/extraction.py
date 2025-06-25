@@ -37,6 +37,17 @@ def extract_node_reactions(
     load_combinations: Optional[list[str]] = None,
     results_key: Optional[str] = "node_reactions",
 ) -> dict[str, dict]:
+    """
+    Returns all node reactions from 'model'.
+
+    'model': A solved Pynite.FEModel3D
+    'load_combinations': return results only for these combinations.
+        When None, returns all combinations. Default is None.
+    'results_key': Optional str value used to nest your results
+        more descriptively in the tree. Useful when merging
+        multiple results trees. Setting to None will make
+        your result tree one level shallower.
+    """
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
 
@@ -75,6 +86,17 @@ def extract_node_deflections(
     load_combinations: Optional[list[str]] = None,
     results_key: Optional[str] = "node_deflections",
 ):
+    """
+    Returns all node displacements from 'model'.
+
+    'model': A solved Pynite.FEModel3D
+    'load_combinations': return results only for these combinations.
+        When None, returns all combinations. Default is None.
+    'results_key': Optional str value used to nest your results
+        more descriptively in the tree. Useful when merging
+        multiple results trees. Setting to None will make
+        your result tree one level shallower.
+    """
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
     node_deflections = {}
@@ -116,7 +138,20 @@ def extract_member_arrays(
     results_key: Optional[str] = "action_arrays"
 ) -> dict[str, dict]:
     """
-    
+    Returns all member action arrays from 'model'. Each array is of
+    shape (2, n_points) where the 0th array is the "x_array" providing
+    stations along the member and the 1th array is the "y_array"
+    providing the analysis results.
+
+    'model': A solved Pynite.FEModel3D
+    'load_combinations': return results only for these combinations.
+        When None, returns all combinations. Default is None.
+    'n_points': The number of points to use to discretize the array.
+        default is 1000.
+    'results_key': Optional str value used to nest your results
+        more descriptively in the tree. Useful when merging
+        multiple results trees. Setting to None will make
+        your result tree one level shallower.
     """
     forces = {}
     # For each member...
@@ -137,28 +172,8 @@ def extract_member_arrays(
             parent_accumulator = inner_acc
             path = force_direction
 
-            # if force_direction == method_type:
-            #     accumulator = inner_acc[action_name]
-
-            #     # The 'parent_accumulator' and 'path' allow me to update the action
-            #     # with None if there are no results
-            #     parent_accumulator = inner_acc
-            #     path = action_name
-            # else:
-            #     inner_acc[action_name][direction] = {}
-            #     accumulator = inner_acc[action_name][direction]
-
-            #     # The 'parent_accumulator' and 'path' allow me to update the action
-            #     # with None if there are no results
-            #     parent_accumulator = inner_acc[action_name]
-            #     path = direction
-    
-            # ...and for each load combo...
             for load_combo_name in load_combinations:
                 accumulator.setdefault(load_combo_name, {})
-                
-                # pop_next = False
-
                 # hacky fix: AxialDeflection method is receiving None for a .P1, I think (Pynite error to be fixed)
                 try:
                     if method_type not in ("axial", "torque"):
@@ -178,8 +193,6 @@ def extract_member_arrays(
                     pass
                 else:
                     accumulator[load_combo_name] = result_arrays
-                # if pop_next:
-                #     parent_accumulator.pop(path)
             if not parent_accumulator[path]:
                 parent_accumulator.pop(path)
     return forces
@@ -190,6 +203,21 @@ def extract_member_envelopes(
         load_combinations: Optional[list[str]] = None,
         results_key: Optional[str] = "action_envelopes"
     ) -> dict[str, dict]:
+    """
+    Returns member action envelopes for all members in the 'model'.
+    Each action ("Fx", "Fy", "Fz", "Mx", "My", "Mz") is enveloped
+    for min/max/absmax values. If an action does not have any 
+    analysis results, then its key is excluded from the result
+    tree.
+
+    'model': A solved Pynite.FEModel3D
+    'load_combinations': return results only for these combinations.
+        When None, returns all combinations. Default is None.
+    'results_key': Optional str value used to nest your results
+        more descriptively in the tree. Useful when merging
+        multiple results trees. Setting to None will make
+        your result tree one level shallower.
+    """
 
     # For each member...
     if load_combinations is None:
@@ -245,8 +273,12 @@ def extract_member_actions_by_location(
     results_key: Optional[str] = "action_locations"
 ) -> dict[str, dict]:
     """
-    Extracts forces at selected members at the locations specified.
+    Returns member actions  for all members in the 'model' at the
+    locations provided. If an action does not have any 
+    analysis results, then its key is excluded from the result
+    tree.
 
+    'model': A solved Pynite.FEModel3D
     'force_extraction_locations': a dict in the following format:
 
         {"member01": [0, 2200, 4300], "member02": [3423, 1500]}
@@ -273,6 +305,16 @@ def extract_member_actions_by_location(
 
             Whether the member is the PhysMember3D (main member)
             or a Member3D (sub member, i.e. an individual span).
+
+    'load_combinations': return results only for these combinations.
+        When None, returns all combinations. Default is None.
+    'by_span': When True, will assume that the locations provided
+        apply to each span for each member, instead of as 
+        locations specified on the total length of the member.
+    'results_key': Optional str value used to nest your results
+        more descriptively in the tree. Useful when merging
+        multiple results trees. Setting to None will make
+        your result tree one level shallower.
     """
     if load_combinations is None:
         load_combinations = extract_load_combinations(model)
