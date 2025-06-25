@@ -1,6 +1,7 @@
 import math
 from typing import Optional, Union, Any
 import numpy as np
+import deepmerge
 
 
 # ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
@@ -562,3 +563,15 @@ def round_to_close_integer(x: float, eps = 1e-8) -> float | int:
         return x
     
 
+def merge_trees(result_trees: list[dict[str, dict]]) -> dict[str, dict]:
+    """
+    Merges all of the tress (dictionaries) in 'result_trees'. 
+
+    This is different than a typical dictionary merge (e.g. a | b).
+    It uses the deepmerge package to perform a, well, deep merge
+    of the result trees.
+    """
+    acc = {}
+    for result_tree in result_trees:
+        acc = deepmerge.always_merger.merge(acc, result_tree)
+    return acc
