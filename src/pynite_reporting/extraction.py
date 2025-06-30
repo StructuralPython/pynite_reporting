@@ -387,7 +387,7 @@ def collect_forces_at_location(
     for ratio in force_extraction_ratios.get(member_name, {}):
         length = submember.L()
         loc = length * ratio
-        acc.update({loc: extract_forces_at_location(submember, loc, load_combinations)})
+        acc.update({ratio: extract_forces_at_location(submember, loc, load_combinations)})
     return acc
 
 
