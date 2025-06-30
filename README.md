@@ -6,7 +6,7 @@ PyniteFEA is excellent and it is generally design-ready...if it weren't for all 
 
 This package provides a series of functions that consume a `Pynite.FEModel3D` object and returns consistently-structured dictionaries of analysis results.
 
-> **Note:** As of 2025-06-25, this package has only been "casually tested" (meaning simple visual checking of outputs). No test suite has been written (but is coming).
+> **Note:** As of 2025-06-30, this package has only been "casually tested" (meaning simple visual checking of outputs). No test suite has been written (but is coming).
 
 
 ## Installation
@@ -201,13 +201,7 @@ Here is how the above results are returned:
 
 So, you know that all other load combos result in null values _without having to physically read a bunch of zeros or confusing "near zero" values._
 
-The tolerance for this is an absolute tolerance of `1e-8`. Currently, this is not parameterized and is hard-coded into the package (because it was easier and made the function signatures cleaner). So, even if you have REALLY small result values (on the order of `0.0000001` units), those values will still be returned to you (and not excluded).
-
-**Note: Not ALL functions have this behaviour**
-
-Functions which will always return all results:
-
-* `pynite_reporting.extract_member_forces_at_locations`
+The tolerance for this is an absolute tolerance of `1e-7`. Currently, this is not parameterized and is hard-coded into the package (because it was easier and made the function signatures cleaner). So, even if you have REALLY small result values (on the order of `0.000001` units), those values will still be returned to you (and not excluded).
 
 This is allows you to see all concurrent forces for a load combination at a given location.
 
