@@ -298,13 +298,17 @@ def extract_member_actions_by_location(
         - The values are a list of locations on the member from which to
             extract results from.
 
-    'force_extraction_ratios': a dict in the following format:
+    'force_extraction_ratios': a list or a dict in the following format:
 
             {
-                "member01": [0.25, 0.5, 0.77], 
+                "member01": [0.25, 0.5, 0.75], 
                 "member02": [0.333, 0.666],
                 ...    
             }
+
+            -or-
+
+            [0.25, 0.5, 0.75]
 
         Where:
         - "member01" is a member name
@@ -315,6 +319,9 @@ def extract_member_actions_by_location(
 
             Whether the member is the PhysMember3D (main member)
             or a Member3D (sub member, i.e. an individual span).
+        - If a dictionary is supplied, then only those specified members
+            will have extracted results. If a list is supplied, then
+            the extraction ratio locations will apply to all members.
 
     'load_combinations': return results only for these combinations.
         When None, returns all combinations. Default is None.
@@ -377,14 +384,21 @@ def collect_forces_at_location(
     submember: "Pynite.Member3D",
     member_name: str,
     force_extraction_locations: dict, 
-    force_extraction_ratios: dict,
+    force_extraction_ratios: dict | list,
     load_combinations: list[str]
 ) -> dict:
     acc = {}
     for loc in force_extraction_locations.get(member_name,{}):
         acc.update({loc: extract_forces_at_location(submember, loc, load_combinations)})
 
-    for ratio in force_extraction_ratios.get(member_name, {}):
+    if isinstance(force_extraction_ratios, list):
+        ratios_to_extract = force_extraction_ratios
+    elif isinstance(force_extraction_ratios, dict):
+        ratios_to_extract = force_extraction_ratios.get(member_name)
+    else:
+        raise ValueError("force_extraction_ratios must be either a dict or list")
+    
+    for ratio in ratios_to_extract:
         length = submember.L()
         loc = length * ratio
         acc.update({ratio: extract_forces_at_location(submember, loc, load_combinations)})
