@@ -410,17 +410,17 @@ def collect_forces_at_location(
 def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_combinations: list[str]):
     loc = location
     acc = {}
-    for load_combo_name in load_combinations:
-        acc[load_combo_name] = {}
-        for force_direction, method_type in ACTION_METHODS.items():
-            force_method = getattr(member, method_type)
+    for force_direction, method_type in ACTION_METHODS.items():
+        acc.setdefault(force_direction, {})
+        force_method = getattr(member, method_type)
+        for load_combo_name in load_combinations:
             if method_type not in ("axial", "torque"):
                 force_value = round_to_close_integer(force_method(force_direction, loc, load_combo_name))
             else:
                 force_value = round_to_close_integer(force_method(loc, load_combo_name))
-            acc[load_combo_name].update({force_direction: force_value})
-        if all([force_value == 0.0 for force_value in acc[load_combo_name].values()]):
-            acc.pop(load_combo_name)
+            acc[force_direction].update({load_combo_name: force_value})
+        if all([force_value == 0.0 for force_value in acc[force_direction].values()]):
+            acc.pop(force_direction)
     return acc
 
 
