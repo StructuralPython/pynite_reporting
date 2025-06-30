@@ -1,9 +1,11 @@
+from collections import Counter
 import math
 from typing import Optional, Union, Any
 import numpy as np
 import deepmerge
 import pathlib
 import json
+
 
 
 # ACTIONS = ['Fy', 'Fz', 'Mz', 'My', 'axial', 'torque']
@@ -417,6 +419,8 @@ def extract_forces_at_location(member: "Pynite.Member3D", location: float, load_
             else:
                 force_value = round_to_close_integer(force_method(loc, load_combo_name))
             acc[load_combo_name].update({force_direction: force_value})
+        if all([force_value == 0.0 for force_value in acc[load_combo_name].values()]):
+            acc.pop(load_combo_name)
     return acc
 
 
@@ -465,6 +469,7 @@ def extract_span_envelopes(
         member_length = model.members[member_name].L()
         span_envelopes.setdefault(member_name, {})
         inner_acc = span_envelopes[member_name]
+        node_counts = get_node_counts(model, member_name)
         if results_key is not None:
             span_envelopes[member_name].setdefault(results_key, {})
             inner_acc = span_envelopes[member_name][results_key]
@@ -491,7 +496,7 @@ def extract_span_envelopes(
                         x_val_global = x_val_local + length_counter
                         x_length = result_arrays[0][-1]
                         length_counter += x_length
-                        is_cantilevered = member_is_cantilevered(sub_member)
+                        is_cantilevered = member_is_cantilevered(sub_member, node_counts)
                         span_envelope = {
                             "value": round_to_close_integer(envelope_val),
                             "loc_rel": x_val_local,
@@ -523,14 +528,21 @@ def extract_load_combinations(model: "Pynite.FEModel3D") -> list[str]:
     return list(model.load_combos.keys())
 
 
-def member_is_cantilevered(member: "Pynite.Member3D") -> bool:
+def member_is_cantilevered(member: "Pynite.Member3D", node_counts: Counter) -> bool:
     """
     Returns True if a member is cantilevered. False otherwise.
     """
     has_two_supports = member_has_two_supports(member)
     if has_two_supports:
         return False
-    return member_has_reactions_each_end(member)
+    else:
+        i_node = member.i_node
+        j_node = member.j_node
+        return (
+            (node_counts[i_node.name] == 1) and not (node_has_supports(i_node))
+            or
+            ((node_counts[j_node.name] == 1) and not (node_has_supports(j_node)))
+        )
 
 
 def member_has_two_supports(member: "Pynite.Member3D") -> bool:
@@ -576,7 +588,19 @@ def node_has_supports(node: "Pynite.Node") -> bool:
     ])
 
 
-def round_to_close_integer(x: float, eps = 1e-8) -> float | int:
+def get_node_counts(model: "Pynite.FEModel3D", member_name: str) -> Counter:
+    """
+    Counts the number of times that a node is connected within 'member_name'
+    for the purpose of identifying potentially cantilevered sub_members.
+    """
+    node_counts = Counter()
+    for _, sub_member in model.members[member_name].sub_members.items():
+        node_counts.update([sub_member.i_node.name])
+        node_counts.update([sub_member.j_node.name])
+    return node_counts
+
+
+def round_to_close_integer(x: float, eps = 1e-7) -> float | int:
     """
     Rounds to the nearest int if it is REALLY close
     """
